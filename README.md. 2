@@ -1,0 +1,242 @@
+# Part 2 – Computer Vision: Surface Defect Classification with CNN
+
+## Overview
+
+This project builds a **Convolutional Neural Network (CNN)** to classify surface defects in manufactured parts. The model identifies four types of surface conditions from grayscale-like image patches, making it directly applicable to automated quality inspection in manufacturing.
+
+---
+
+## Dataset Summary
+
+| Property | Value |
+|---|---|
+| Total Images | 480 |
+| Number of Classes | 4 |
+| Images per Class | 120 (balanced) |
+| Original Image Size | 96 × 96 pixels |
+| Colour Mode | RGB |
+
+**Classes:**
+| Class | Description |
+|---|---|
+| `dent` | Physical indentation on surface |
+| `normal` | No defect (clean surface) |
+| `scratch` | Linear surface scratch |
+| `stain` | Surface contamination / discolouration |
+
+---
+
+## Task 1: Problem Identification
+
+**Selected Problem Type: Image Classification**
+
+The dataset contains individual images, each belonging to exactly one of four mutually exclusive categories. There are no bounding box annotations, no pixel-level masks, and no multi-label requirements. Each image represents a single surface patch that must be assigned one class label. This is a classic **multi-class image classification** problem.
+
+Why not the others?
+- **Object detection** – requires localising objects with bounding boxes; not needed here.
+- **Semantic segmentation** – requires pixel-level class labels; not applicable.
+- **Instance segmentation** – requires both pixel masks and instance IDs; far beyond the scope of this data.
+
+---
+
+## Task 2: Dataset Exploration
+
+### Class Distribution
+All four classes contain exactly **120 images**, making this a **perfectly balanced** dataset. No oversampling or class-weighting strategies are needed.
+
+### Image Properties
+- **Dimensions:** 96 × 96 pixels (resized to 64 × 64 for training)
+- **Channels:** RGB (3 channels)
+- **Format:** PNG
+- **Imbalance:** None — all classes are equally represented
+
+### Key Observations
+- `normal` class images are visually uniform with minimal texture variation
+- `scratch` images show clear linear patterns
+- `dent` and `stain` classes share some visual similarity in low-contrast regions, which is reflected in the confusion matrix
+
+---
+
+## Task 3: Image Preprocessing
+
+The following preprocessing steps were applied:
+
+1. **Resizing** – All images resized from 96×96 to 64×64 using Lanczos resampling
+2. **Normalisation** – Pixel values scaled from [0, 255] to [0.0, 1.0] by dividing by 255
+3. **Train/Test Split** – 80% training (384 images), 20% testing (96 images) with stratified sampling
+4. **Augmentation** – Applied to the training set only:
+   - Horizontal flip
+   - Random brightness jitter (factor between 0.8 and 1.2)
+   - This tripled the training set to **1,152 samples**
+
+---
+
+## Task 4: CNN Model Architecture
+
+The CNN model is built using **TensorFlow/Keras** (see `notebook.ipynb` for full Keras implementation):
+
+```python
+model = Sequential([
+    # Block 1
+    Conv2D(32, (3, 3), padding='same', input_shape=(64, 64, 3)),
+    Activation('relu'),
+    MaxPooling2D(pool_size=(2, 2)),
+
+    # Block 2
+    Conv2D(64, (3, 3), padding='same'),
+    Activation('relu'),
+    MaxPooling2D(pool_size=(2, 2)),
+
+    # Block 3
+    Conv2D(128, (3, 3), padding='same'),
+    Activation('relu'),
+    MaxPooling2D(pool_size=(2, 2)),
+
+    # Classifier Head
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.4),
+    Dense(4, activation='softmax')   # 4 classes
+])
+
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+```
+
+**Layer Summary:**
+
+| Layer | Type | Output Shape | Parameters |
+|---|---|---|---|
+| conv2d_1 | Conv2D (32 filters, 3×3) + ReLU | (64, 64, 32) | 896 |
+| max_pooling_1 | MaxPooling2D (2×2) | (32, 32, 32) | 0 |
+| conv2d_2 | Conv2D (64 filters, 3×3) + ReLU | (32, 32, 64) | 18,496 |
+| max_pooling_2 | MaxPooling2D (2×2) | (16, 16, 64) | 0 |
+| conv2d_3 | Conv2D (128 filters, 3×3) + ReLU | (16, 16, 128) | 73,856 |
+| max_pooling_3 | MaxPooling2D (2×2) | (8, 8, 128) | 0 |
+| flatten | Flatten | (8192,) | 0 |
+| dense_1 | Dense + ReLU | (128,) | 1,048,704 |
+| dropout | Dropout (40%) | (128,) | 0 |
+| dense_2 (output) | Dense + Softmax | (4,) | 516 |
+
+---
+
+## Task 5: Model Training and Evaluation
+
+### Training Configuration
+- **Optimiser:** Adam (lr = 0.001)
+- **Loss:** Sparse Categorical Cross-Entropy
+- **Batch Size:** 32
+- **Epochs:** 30 (with early stopping)
+
+### Results
+
+| Split | Accuracy |
+|---|---|
+| Training | **99.2%** |
+| Validation | **94.8%** |
+| Test | **89.6%** |
+
+### Per-Class Performance (Test Set)
+
+| Class | Precision | Recall | F1-Score |
+|---|---|---|---|
+| dent | 0.79 | 0.79 | 0.79 |
+| normal | 1.00 | 1.00 | 1.00 |
+| scratch | 0.96 | 0.96 | 0.96 |
+| stain | 0.83 | 0.83 | 0.83 |
+| **macro avg** | **0.90** | **0.90** | **0.90** |
+
+**Observation:** The `normal` class achieves perfect classification. `dent` and `stain` are occasionally confused, which is visually intuitive as both can appear as low-contrast surface anomalies.
+
+### Output Files
+- `results/accuracy_loss_curves.png` – Training and validation accuracy/loss over epochs
+- `results/confusion_matrix.png` – Confusion matrix on the test set
+- `results/sample_grid.png` – Sample images from each class
+- `results/class_distribution.png` – Bar chart of class distribution
+- `sample_predictions/prediction_outputs.png` – 16 sample test predictions with confidence scores
+
+---
+
+## Task 6: CNN Concept Explanation
+
+### What is Convolution?
+Convolution is the core operation of a CNN. A small matrix called a **filter** (or kernel) slides across the input image, computing a dot product at each position. This produces a **feature map** that highlights the presence of a particular pattern (e.g. edges, curves, textures). By using many filters, the layer detects many patterns simultaneously. Unlike a fully connected layer, convolution **shares weights** across all positions, which drastically reduces the number of parameters and makes the network spatially efficient.
+
+### Why is Pooling Used?
+**Max Pooling** reduces the spatial dimensions of feature maps by taking the maximum value in each small region (typically 2×2). This serves three purposes:
+1. **Downsampling** – Makes the representation smaller and computationally cheaper
+2. **Spatial invariance** – The detected feature is preserved even if it shifts slightly in position
+3. **Overfitting reduction** – Fewer parameters means the model generalises better to new images
+
+### Why is ReLU Commonly Used?
+**ReLU (Rectified Linear Unit)** replaces any negative value with zero: `f(x) = max(0, x)`. It is preferred because:
+- It introduces **non-linearity**, allowing the network to learn complex patterns beyond simple linear combinations
+- It is **computationally trivial** to compute compared to sigmoid or tanh
+- It avoids the **vanishing gradient problem** — gradients remain large for positive activations, making deep networks trainable
+- It produces **sparse activations** (many zeros), which makes representations more efficient
+
+### Why are CNNs Better than Regular Feed-Forward Networks for Images?
+| Property | CNN | Fully Connected (MLP) |
+|---|---|---|
+| Parameter count | Low (weight sharing) | Very high |
+| Spatial awareness | Captures local patterns | Treats all pixels equally |
+| Translation invariance | Yes (via convolution + pooling) | No |
+| Scalability | Scales well to large images | Explodes with image size |
+| Feature learning | Hierarchical (edges → shapes → objects) | Flat |
+
+A 64×64 RGB image has 12,288 input values. A fully connected layer to 1,000 neurons would need 12.3 million parameters just in the first layer. A convolutional layer with 32 filters of size 3×3 needs only 896. CNNs learn **where** patterns occur, not just **whether** they appear anywhere — which is exactly what image understanding requires.
+
+---
+
+## Task 7: Business Use Case Mapping
+
+### Domain: Manufacturing — Automated Visual Quality Control
+
+**Problem:** In a factory producing metal or plastic components, manual visual inspection is slow, inconsistent, and costly. A defect that escapes inspection can lead to product recalls, warranty claims, or safety incidents.
+
+**Solution:** Deploy a CNN-based surface defect classifier on the production line:
+
+1. A high-resolution camera captures images of each part as it passes on the conveyor belt
+2. The image is cropped into patches and fed into the CNN in real time
+3. The model classifies each patch as `normal`, `dent`, `scratch`, or `stain` in milliseconds
+4. Defective parts are automatically flagged and routed to a rejection bin
+5. Inspection logs are stored for traceability and audit compliance
+
+**Business Impact:**
+- Inspection speed increases from ~60 parts/minute (human) to thousands per minute
+- Consistency improves: the model does not suffer from fatigue or distraction
+- Early defect detection reduces downstream scrap and rework costs
+- Data collected can retrain the model over time to handle new defect types
+
+**Real-World Examples:** BMW, Toyota, and Foxconn all deploy similar CNN-based inspection systems on production lines to achieve near-zero defect escape rates.
+
+---
+
+## Repository Structure
+
+```
+part-2-cnn-computer-vision/
+├── README.md                         ← This file
+├── notebook.ipynb                    ← Full Jupyter notebook with Keras CNN
+├── requirements.txt                  ← Python dependencies
+├── sample_predictions/
+│   └── prediction_outputs.png        ← 16 test image predictions
+└── results/
+    ├── accuracy_loss_curves.png      ← Training/validation curves
+    ├── confusion_matrix.png          ← Test confusion matrix
+    ├── sample_grid.png               ← Sample images per class
+    └── class_distribution.png       ← Class balance bar chart
+```
+
+---
+
+## How to Run
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Launch notebook
+jupyter lab notebook.ipynb
+```

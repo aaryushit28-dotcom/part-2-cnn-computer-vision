@@ -1,0 +1,190 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python",
+   "version": "3.10.0"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Part 2 \u2013 Computer Vision: Surface Defect Classification with CNN\n\n**Dataset:** 480 images across 4 classes: `dent`, `normal`, `scratch`, `stain`  \n**Goal:** Train a CNN to classify surface defects for automated quality inspection  \n**Framework:** TensorFlow / Keras"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 1: Problem Identification\n\nThis is an **Image Classification** problem.\n\nEach image shows a single surface patch belonging to exactly one of four categories. There are no bounding boxes, no pixel masks, and no multi-label annotations. The goal is simply to assign the correct class label to each input image \u2014 the defining characteristic of image classification."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 2: Dataset Exploration"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os, random\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport matplotlib.patches as mpatches\nfrom PIL import Image\n\nDATA_DIR = \"dataset\"   # adjust to your local path, e.g. \"extracted\"\nCLASSES  = [\"dent\", \"normal\", \"scratch\", \"stain\"]\nCOLORS   = [\"#E74C3C\", \"#2ECC71\", \"#3498DB\", \"#F39C12\"]\nIMG_SIZE = 64\nrandom.seed(42); np.random.seed(42)\n\n# Count images per class\nfor cls in CLASSES:\n    files = [f for f in os.listdir(os.path.join(DATA_DIR, cls)) if f.endswith(\".png\")]\n    print(f\"  {cls:10s}: {len(files)} images\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Load all images\nX_raw, y_raw = [], []\nfor cls in CLASSES:\n    folder = os.path.join(DATA_DIR, cls)\n    for fname in sorted(os.listdir(folder)):\n        if not fname.endswith(\".png\"): continue\n        img = Image.open(os.path.join(folder, fname)).convert(\"RGB\")\n        img = img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)\n        X_raw.append(np.array(img, dtype=np.float32) / 255.0)\n        y_raw.append(cls)\n\nX_raw = np.array(X_raw)\ny_raw = np.array(y_raw)\n\nprint(f\"Total images : {len(X_raw)}\")\nprint(f\"Image shape  : {X_raw[0].shape}\")\nprint(f\"Classes      : {np.unique(y_raw)}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Sample grid \u2013 6 images per class\nfig, axes = plt.subplots(4, 6, figsize=(14, 10))\nfig.suptitle(\"Sample Images per Class\", fontsize=16, fontweight='bold')\nfor row, cls in enumerate(CLASSES):\n    idxs = np.where(y_raw == cls)[0]\n    for col, idx in enumerate(np.random.choice(idxs, 6, replace=False)):\n        ax = axes[row, col]\n        ax.imshow(X_raw[idx])\n        ax.axis('off')\n        if col == 0:\n            ax.set_ylabel(cls.upper(), fontsize=11, fontweight='bold',\n                          color=COLORS[row], labelpad=8)\nplt.tight_layout()\nplt.savefig(\"results/sample_grid.png\", dpi=120, bbox_inches='tight')\nplt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Class distribution\ncounts = [np.sum(y_raw == c) for c in CLASSES]\nfig, ax = plt.subplots(figsize=(7, 4))\nbars = ax.bar(CLASSES, counts, color=COLORS, edgecolor='white', linewidth=1.2)\nfor bar, cnt in zip(bars, counts):\n    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, str(cnt),\n            ha='center', va='bottom', fontweight='bold', fontsize=12)\nax.set_title(\"Class Distribution\", fontsize=14, fontweight='bold')\nax.set_ylabel(\"Number of Images\"); ax.set_ylim(0, max(counts)+18)\nax.spines[['top','right']].set_visible(False)\nplt.tight_layout()\nplt.savefig(\"results/class_distribution.png\", dpi=120, bbox_inches='tight')\nplt.show()\nprint(\"Dataset is BALANCED \u2014 120 images per class. No oversampling required.\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 3: Image Preprocessing"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import LabelEncoder\nimport tensorflow as tf\n\nle = LabelEncoder()\ny_enc = le.fit_transform(y_raw)   # dent=0, normal=1, scratch=2, stain=3\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_raw, y_enc, test_size=0.2, random_state=42, stratify=y_enc\n)\nprint(f\"Train : {X_train.shape}  |  labels shape: {y_train.shape}\")\nprint(f\"Test  : {X_test.shape}   |  labels shape: {y_test.shape}\")\nprint(f\"Pixel range \u2014 min: {X_train.min():.3f}  max: {X_train.max():.3f}  (normalised to [0,1])\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Augmentation using Keras ImageDataGenerator\nfrom tensorflow.keras.preprocessing.image import ImageDataGenerator\n\ndatagen = ImageDataGenerator(\n    horizontal_flip=True,\n    vertical_flip=False,\n    brightness_range=[0.8, 1.2],\n    rotation_range=10,\n    zoom_range=0.1,\n    fill_mode='nearest'\n)\n\n# The generator will yield augmented batches during training\n# We preview a few augmented samples here\nfig, axes = plt.subplots(2, 5, figsize=(14, 6))\nfig.suptitle(\"Original vs Augmented Samples\", fontsize=13, fontweight='bold')\nsample = X_train[:1]  # one image\naug_iter = datagen.flow(sample, batch_size=1)\naxes[0,0].imshow(sample[0]); axes[0,0].set_title(\"Original\"); axes[0,0].axis('off')\nfor i in range(1, 5):\n    axes[0,i].imshow(next(aug_iter)[0])\n    axes[0,i].set_title(f\"Aug {i}\"); axes[0,i].axis('off')\nsample2 = X_train[40:41]\naug_iter2 = datagen.flow(sample2, batch_size=1)\naxes[1,0].imshow(sample2[0]); axes[1,0].set_title(\"Original\"); axes[1,0].axis('off')\nfor i in range(1, 5):\n    axes[1,i].imshow(next(aug_iter2)[0])\n    axes[1,i].set_title(f\"Aug {i}\"); axes[1,i].axis('off')\nplt.tight_layout(); plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 4: CNN Model Creation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from tensorflow.keras.models import Sequential\nfrom tensorflow.keras.layers import (Conv2D, MaxPooling2D, Flatten,\n                                     Dense, Dropout, Activation,\n                                     BatchNormalization)\n\ndef build_cnn(input_shape=(64, 64, 3), num_classes=4):\n    model = Sequential([\n        # \u2500\u2500 Convolutional Block 1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        Conv2D(32, (3, 3), padding='same', input_shape=input_shape),\n        Activation('relu'),                    # ReLU activation\n        MaxPooling2D(pool_size=(2, 2)),        # Spatial downsampling\n\n        # \u2500\u2500 Convolutional Block 2 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        Conv2D(64, (3, 3), padding='same'),\n        Activation('relu'),\n        MaxPooling2D(pool_size=(2, 2)),\n\n        # \u2500\u2500 Convolutional Block 3 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        Conv2D(128, (3, 3), padding='same'),\n        Activation('relu'),\n        MaxPooling2D(pool_size=(2, 2)),\n\n        # \u2500\u2500 Classifier Head \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        Flatten(),                             # Flatten spatial dims \u2192 vector\n        Dense(128),                            # Fully-connected layer\n        Activation('relu'),\n        Dropout(0.4),                          # Regularisation\n        Dense(num_classes, activation='softmax')  # Output layer\n    ], name=\"SurfaceDefectCNN\")\n    return model\n\nmodel = build_cnn()\nmodel.summary()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "model.compile(\n    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),\n    loss='sparse_categorical_crossentropy',\n    metrics=['accuracy']\n)\nprint(\"Model compiled successfully\")\nprint(f\"Total trainable parameters: {model.count_params():,}\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 5: Model Training and Evaluation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau\n\ncallbacks = [\n    EarlyStopping(monitor='val_accuracy', patience=10, restore_best_weights=True, verbose=1),\n    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, verbose=1)\n]\n\n# Train using the augmentation generator\nhistory = model.fit(\n    datagen.flow(X_train, y_train, batch_size=32),\n    epochs=30,\n    validation_data=(X_test, y_test),\n    callbacks=callbacks,\n    verbose=1\n)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# \u2500\u2500 Accuracy / Loss Curves \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nfig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))\n\nax1.plot(history.history['accuracy'],     label='Train',      color='#3498DB', lw=2)\nax1.plot(history.history['val_accuracy'], label='Validation', color='#E74C3C', lw=2, ls='--')\nax1.set_title(\"Model Accuracy\", fontsize=13, fontweight='bold')\nax1.set_xlabel(\"Epoch\"); ax1.set_ylabel(\"Accuracy\")\nax1.legend(); ax1.grid(alpha=0.3); ax1.set_ylim(0, 1.05)\n\nax2.plot(history.history['loss'],     label='Train',      color='#3498DB', lw=2)\nax2.plot(history.history['val_loss'], label='Validation', color='#E74C3C', lw=2, ls='--')\nax2.set_title(\"Model Loss\", fontsize=13, fontweight='bold')\nax2.set_xlabel(\"Epoch\"); ax2.set_ylabel(\"Cross-Entropy Loss\")\nax2.legend(); ax2.grid(alpha=0.3)\n\nplt.suptitle(\"Training & Validation Curves\", fontsize=15, fontweight='bold')\nplt.tight_layout()\nplt.savefig(\"results/accuracy_loss_curves.png\", dpi=130, bbox_inches='tight')\nplt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.metrics import confusion_matrix, classification_report, accuracy_score\nimport seaborn as sns\n\n# Evaluate on test set\ntest_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)\ny_pred_probs = model.predict(X_test, verbose=0)\ny_pred = np.argmax(y_pred_probs, axis=1)\n\nprint(f\"Test Loss     : {test_loss:.4f}\")\nprint(f\"Test Accuracy : {test_acc:.4f}  ({test_acc*100:.2f}%)\")\nprint()\nprint(\"Classification Report:\")\nprint(classification_report(y_test, y_pred, target_names=CLASSES))\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Confusion Matrix\ncm = confusion_matrix(y_test, y_pred)\nfig, ax = plt.subplots(figsize=(7, 6))\nsns.heatmap(cm, annot=True, fmt='d', cmap='Blues',\n            xticklabels=CLASSES, yticklabels=CLASSES,\n            linewidths=0.5, linecolor='gray',\n            annot_kws={\"size\": 14, \"weight\": \"bold\"}, ax=ax)\nax.set_title(f\"Confusion Matrix  (Test Accuracy = {test_acc:.2%})\",\n             fontsize=13, fontweight='bold', pad=12)\nax.set_xlabel(\"Predicted Label\", fontsize=11)\nax.set_ylabel(\"True Label\", fontsize=11)\nplt.tight_layout()\nplt.savefig(\"results/confusion_matrix.png\", dpi=130, bbox_inches='tight')\nplt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Sample predictions\nn_show = 16\nidxs = np.random.choice(len(X_test), n_show, replace=False)\nfig, axes = plt.subplots(4, 4, figsize=(12, 13))\nfig.suptitle(\"Sample Predictions on Test Set\", fontsize=15, fontweight='bold', y=1.01)\n\nfor ax, idx in zip(axes.flat, idxs):\n    pred_idx = int(np.argmax(y_pred_probs[idx]))\n    true_idx = int(y_test[idx])\n    conf     = float(y_pred_probs[idx, pred_idx]) * 100\n    correct  = (pred_idx == true_idx)\n    color    = '#2ECC71' if correct else '#E74C3C'\n    ax.imshow(X_test[idx])\n    ax.axis('off')\n    ax.set_title(f\"True: {CLASSES[true_idx]}\\nPred: {CLASSES[pred_idx]} ({conf:.1f}%)\",\n                 fontsize=8.5, color=color, fontweight='bold')\n\nplt.tight_layout()\nplt.savefig(\"sample_predictions/prediction_outputs.png\", dpi=130, bbox_inches='tight')\nplt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 6: CNN Concept Explanation\n\n### What is Convolution?\nConvolution is the fundamental operation in a CNN. A small weight matrix called a **filter** (typically 3\u00d73 or 5\u00d75) slides across the input image. At each position it computes a dot product between its weights and the corresponding image patch, producing a single number in the output **feature map**. Different filters learn to detect different patterns \u2014 one filter might detect horizontal edges, another diagonal lines, another colour blobs. By stacking many filters, a single convolutional layer extracts dozens of feature maps simultaneously. Crucially, the same filter weights are reused at every position (**weight sharing**), which drastically reduces parameters compared to a fully connected layer.\n\n### Why is Pooling Used?\nAfter convolution, the feature maps are still spatially large. **Max Pooling** divides each feature map into small non-overlapping windows (usually 2\u00d72) and keeps only the maximum value in each window. This:\n- **Reduces spatial size** (by half with a 2\u00d72 pool), cutting computation\n- **Provides translation invariance** \u2014 if a detected feature shifts slightly, the max in its window still fires\n- **Reduces overfitting** by removing fine-grained positional detail that might not generalise\n\n### Why is ReLU Commonly Used?\n`ReLU(x) = max(0, x)` turns all negative activations to zero and leaves positive ones unchanged. It is preferred over sigmoid/tanh for several reasons:\n- **Avoids vanishing gradients** \u2014 gradient is 1 for positive inputs, so learning does not stall in deep networks\n- **Computationally fast** \u2014 just a threshold comparison, much cheaper than exponential functions\n- **Sparse activations** \u2014 many neurons output zero, making the representation efficient and disentangled\n- **Empirically strong** \u2014 networks with ReLU train faster and often generalise better in practice\n\n### Why CNNs over Regular Feed-Forward Networks for Images?\n\n| | **CNN** | **Fully Connected MLP** |\n|---|---|---|\n| Weight sharing | \u2705 Same filter reused everywhere | \u274c Unique weight per pixel-neuron pair |\n| Parameters (64\u00d764 RGB input) | ~900 per 3\u00d73 filter | ~12.3 M per 1000-neuron layer |\n| Local pattern detection | \u2705 Naturally captures edges, textures | \u274c No spatial awareness |\n| Translation invariance | \u2705 Via convolution + pooling | \u274c Sensitive to exact pixel position |\n| Scalability | \u2705 Parameters grow with filter count, not image size | \u274c Explodes with image resolution |\n| Hierarchical features | \u2705 Edges \u2192 shapes \u2192 objects | \u274c Flat, unstructured |\n\nIn short, CNNs **exploit the spatial structure** of images by treating nearby pixels as related \u2014 which they are. An MLP has no such inductive bias and would need orders of magnitude more data and parameters to learn the same patterns.\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Task 7: Business Use Case Mapping\n\n### Domain: Manufacturing \u2014 Automated Visual Quality Control\n\n**Problem:**  \nTraditional manual visual inspection of manufactured parts (metal stampings, injection-moulded plastics, painted surfaces) is slow (one inspector per line), inconsistent (fatigue, subjectivity), and expensive. A single escaped defect can cause costly downstream failures or product recalls.\n\n**Solution \u2014 CNN-based Inline Inspection:**\n\n1. A line-scan or area-scan camera captures images of each part as it passes on the conveyor belt\n2. The image is segmented into patches and each patch is classified by the CNN in real time (<10 ms per part)\n3. Parts labelled as `dent`, `scratch`, or `stain` are automatically ejected to a reject bin\n4. All inspection results are logged with timestamps and images for traceability and root-cause analysis\n5. The model is periodically retrained on new production data to handle tool-wear, material changes, or new defect types\n\n**Tangible Benefits:**\n\n| Metric | Manual Inspection | CNN Inspection |\n|---|---|---|\n| Speed | ~60 parts / min | >2,000 parts / min |\n| Consistency | Variable (fatigue) | Constant 24/7 |\n| Defect escape rate | 2\u20135% | <0.5% |\n| Data for root cause | None | Full image log |\n| Cost per 1M parts inspected | High (labour) | Low (amortised HW) |\n\n**Real-World Deployments:**  \n- BMW and Audi use CNN inspection for body panel surface quality\n- Foxconn uses it for smartphone screen and housing defect detection  \n- Bosch uses similar systems for injection-moulded automotive components\n\nThis project's four-class model (dent / normal / scratch / stain) directly mirrors the defect taxonomy used in many ISO 10110 and ISO 8785 surface quality standards.\n"
+   ]
+  }
+ ]
+}
